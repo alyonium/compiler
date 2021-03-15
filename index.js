@@ -17,7 +17,7 @@ class Cell {
 
 class Parser {
     convertStringToNumber(data, item) {
-        const num = parseFloat(item);
+        const num = parseFloat(item, 5);
         if (Number.isNaN(num)) {
             throw new Error(`Couldn't parse number from string ${item}`);
         }
@@ -149,6 +149,7 @@ const stillCollecting = (item, ch, to) => {
 const main = async (filepath) => {
     const file = await fs.readFile(filepath, 'utf8')
     const expressions = file.toString().split(END_LINE);
+
     expressions.forEach((expression) => {
         const calculator = new Calculator();
         const answer = calculator.loadAndCalculate(expression);
