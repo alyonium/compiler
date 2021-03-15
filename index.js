@@ -1,7 +1,9 @@
 import fs from 'fs/promises';
 
-const END_ARG = ')';
 const START_ARG = '(';
+const END_ARG = ')';
+const END_LINE = '\n';
+let INDEX = 1
 
 class Cell {
     value
@@ -11,21 +13,78 @@ class Cell {
         this.value = value;
         this.action = action;
     }
+}
 
-    getValue() {
-        return this.value;
+class Parser {
+    convertStringToNumber(data, item) {
+        const num = parseFloat(item);
+        if (Number.isNaN(num)) {
+            throw new Error(`Couldn't parse number from string ${item}`);
+        }
+        return num;
+    };
+}
+
+class Calculator {
+    from = 0
+
+    loadAndCalculate(data, to) {
+        if (this.from >= data.length || data[this.from] === to)  {
+            throw new Error(`Loaded invalid data ${data}`);
+        }
+
+        const listToMerge = [];
+        let item = '';
+
+        do {
+            const ch = data[this.from++];
+
+            if (stillCollecting(item, ch, to)) {
+                item += ch;
+                if (this.from < data.length && data[this.from] !== to) {
+                    continue;
+                }
+            }
+            const func = this.parserFunction(data, item, ch);
+
+            const value = func(data, item);
+
+            const action = validAction(ch) ? ch : this.updateAction(data, ch, to);
+            listToMerge.push(new Cell(value, action));
+            item = item.replace(`${item}`, '');
+
+        } while (this.from < data.length && data[this.from] !== to);
+
+        if (this.from < data.length && (data[this.from] === END_ARG || data[this.from] === to)) {
+            this.from++;
+        }
+
+        return merge(listToMerge)
     }
 
-    setValue(value) {
-        this.value = value;
-    }
+    updateAction(item, ch, to) {
+        if (this.from >= item.length || item[this.from] === END_ARG || item[this.from] === to) {
+            return END_ARG;
+        }
 
-    getAction() {
-        return this.action;
-    }
+        let index = this.from;
+        let res = ch;
 
-    setAction(action) {
-        this.action = action;
+        while (!validAction(res) && index < item.length) {
+            res = item[index++];
+        }
+
+        this.from = validAction(res) ? index : index > this.from ? index - 1 : this.from;
+
+        return res;
+    };
+
+    parserFunction(data, item, ch) {
+        if (item.length === 0 && ch === START_ARG) {
+            return () => this.loadAndCalculate(data, END_ARG);
+        }
+        const parser = new Parser();
+        return parser.convertStringToNumber;
     }
 }
 
@@ -42,140 +101,59 @@ const getPriority = (action) => {
     }
 };
 
-const canMergeCells = (leftCell, rightCell) => getPriority(leftCell.getAction()) >= getPriority(rightCell.getAction())
+const canMergeCells = (leftCell, rightCell) => getPriority(leftCell.action) >= getPriority(rightCell.action)
 
 const mergeCells = (leftCell, rightCell) => {
-    switch (leftCell.getAction()) {
-        case '*':
-            leftCell.setValue(leftCell.getValue() * rightCell.getValue());
+    switch (leftCell.action) {
+        case '*': leftCell.value *= rightCell.value;
             break;
-        case '/':
-            leftCell.setValue(leftCell.getValue() / rightCell.getValue());
+        case '/': leftCell.value /= rightCell.value;
             break;
-        case '+':
-            leftCell.setValue(leftCell.getValue() + rightCell.getValue());
+        case '+': leftCell.value += rightCell.value;
             break;
-        case '-':
-            leftCell.setValue(leftCell.getValue() - rightCell.getValue());
+        case '-': leftCell.value -= rightCell.value;
             break;
         default:
     }
-    leftCell.setAction(rightCell.getAction());
+    leftCell.action = rightCell.action;
 };
 
 const merge = (listToMerge) => {
-    let index = 1;
+    const mergeCycle = (current, mergeOneOnly = false) => {
+        while (INDEX < listToMerge.length) {
+            const next = listToMerge[INDEX++];
 
-    const iter = (currentCell, mergeOneOnly) => {
-        while (index < listToMerge.length) {
-            const next = listToMerge[index];
-            index += 1;
-            while (!canMergeCells(currentCell, next)) {
-                iter(next, true);
+            while (!canMergeCells(current, next)) {
+                mergeCycle(next, true);
             }
 
-            mergeCells(currentCell, next);
+            mergeCells(current, next);
 
             if (mergeOneOnly) {
-                return currentCell.getValue();
+                return current.value;
             }
         }
-        return currentCell.getValue();
+        return current.value;
     };
-    return iter(listToMerge[0], false);
+    INDEX = 1
+    return mergeCycle(listToMerge[0], false);
 };
 
-const isActionValid = (ch) => {
-    const actions = ['*', '/', '+', '-'];
-    return actions.includes(ch);
+const validAction = (ch) => ['*', '/', '+', '-'].indexOf(ch) !== -1;
+
+const stillCollecting = (item, ch, to) => {
+    const stopCollecting = to === END_ARG || to === END_LINE ? END_ARG : to;
+    return ((item.length === 0 && (ch === '-' || ch === END_ARG)) || !(validAction(ch) || ch === START_ARG || ch === stopCollecting));
 };
 
-const isStillCollecting = (item, ch, to, defaultTo) => {
-    const stopCollecting = to === END_ARG || to === defaultTo ? END_ARG : to;
-    return (
-        (item.length === 0 && (ch === '-' || ch === END_ARG)) ||
-        !(isActionValid(ch) || ch === START_ARG || ch === stopCollecting)
-    );
+const main = async (filepath) => {
+    const file = await fs.readFile(filepath, 'utf8')
+    const expressions = file.toString().split(END_LINE);
+    expressions.forEach((expression) => {
+        const calculator = new Calculator();
+        const answer = calculator.loadAndCalculate(expression);
+        console.log(`${ expression } = ${ answer }`);
+    })
 };
 
-const stringToNumber = (data, item) => {
-    const number = +item;
-    if (Number.isNaN(number)) {
-        throw new Error(`Error parsing number from string ${item}`);
-    }
-    return number;
-};
-
-const calculateExpression = (expression, defaultTo = '\0') => {
-    let from = 0;
-
-    const updateAction = (item, ch, to) => {
-        if (from >= item.length || item[from] === END_ARG || item[from] === to) {
-            return END_ARG;
-        }
-
-        let index = from;
-        let res = ch;
-        while (!isActionValid(res) && index < item.length) {
-            // смотрим на следующий символ в строке,
-            // пока не найдем допустимое действие
-            res = item[index];
-            index += 1;
-        }
-        if (isActionValid(res)) {
-            from = index;
-        } else if (index > from) {
-            from = index - 1;
-        }
-        return res;
-    };
-
-    const getParserFunction = (data, item, ch) => {
-        if (item.length === 0 && ch === START_ARG) {
-            return () => loadAndCalculate(data, END_ARG);
-        }
-        return stringToNumber;
-    };
-
-    const loadAndCalculate = (data, to) => {
-        const listToMerge = [];
-        let item = '';
-
-        do {
-            const ch = data[from];
-            from += 1;
-
-            if (isStillCollecting(item, ch, to, defaultTo)) {
-                item += ch;
-                if (from < data.length && data[from] !== to) {
-                    continue;
-                }
-            }
-            const fn = getParserFunction(data, item, ch);
-
-            const value = fn(data, item);
-
-            const action = isActionValid(ch) ? ch : updateAction(data, ch, to);
-            listToMerge.push(new Cell(value, action));
-            item = '';
-        } while (from < data.length && data[from] !== to);
-
-        if (from < data.length && (data[from] === END_ARG || data[from] === to)) {
-            from += 1;
-        }
-
-        return merge(listToMerge);
-    };
-
-    return loadAndCalculate(expression, defaultTo);
-};
-
-const calculateFileExpression = async (filepath) => {
-    const expression = await fs.readFile(filepath, 'utf-8');
-
-    return calculateExpression(expression);
-};
-
-const main = async () => console.log(await calculateFileExpression('expressionExample.txt', '\0'))
-
-main();
+await main('file.txt')
