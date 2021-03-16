@@ -17,7 +17,7 @@ class Cell {
 
 class Parser {
     convertStringToNumber(data, item) {
-        const num = parseFloat(item, 5);
+        const num = parseFloat(item);
         if (Number.isNaN(num)) {
             throw new Error(`Couldn't parse number from string ${item}`);
         }
