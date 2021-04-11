@@ -2,10 +2,15 @@ import fs from 'fs/promises';
 
 const START_ARG = '(';
 const END_ARG = ')';
+const START_GROUP = '{';
+const END_GROUP = '}';
 const SPACE = ' ';
 const EMPTY = '';
 const END_LINE = '\n';
 const END_STATEMENT = ';';
+const ELSE = 'else';
+const END_PARSING_STR = SPACE + END_GROUP + END_STATEMENT + END_LINE;
+const TOKEN_SEPARATION = '<>=+-*/%&|^,!()[]{}\t\n; ';
 const ACTIONS = ['*', '/', '+', '-', '^'];
 let INDEX = 1
 
@@ -63,9 +68,8 @@ class Parser {
             const arg = this.loadAndCalculate(script, END_ARG);
             return Math.sqrt(arg);
         },
-        log: (script) => {
-            const arg = this.loadAndCalculate(script, END_ARG);
-            return Math.log(arg);
+        if: (script) => {
+            return this.processIf(script);
         },
     };
 
@@ -128,7 +132,7 @@ class Parser {
     convertStringToNumber = (item) => () => {
         const num = +item;
         if (Number.isNaN(num)) {
-            throw new Error(`Couldn't parse number from string ${item}`);
+            throw new Error(`Ошибка: невозможно привести к числу строку ${item}`);
         }
         return num;
     };
@@ -142,10 +146,52 @@ class Parser {
         }
         return this.convertStringToNumber(item);
     }
+
+    processBlock = (script) => {
+        let result = null;
+
+        while (script.stillValid()) {
+            const endGroupRead = goToNextStatement(script);
+            if (endGroupRead > 0) {
+                return result !== null ? result : 0;
+            }
+
+            if (!script.stillValid()) {
+                throw new Error('Ошибка: неверное выражение');
+            }
+            result = this.loadAndCalculate(script, END_PARSING_STR);
+        }
+        if (result === null) {
+            throw new Error('Ошибка: неверное выражение');
+        }
+        return result;
+    };
+
+    processIf = (script) => {
+        const statementResult = this.loadAndCalculate(script, END_ARG);
+        const isTrue = !!statementResult;
+
+        if (isTrue) {
+            const result = this.processBlock(script);
+            skipRestBlocks(script);
+            return result;
+        }
+        skipBlock(script);
+
+        const nextData = new ParsingScript(script.data, script.from);
+        const nextToken = getNextToken(nextData);
+        if (nextToken === ELSE) {
+            script.from = nextData.from + 1;
+            return this.processBlock(script);
+        }
+        return 0;
+    };
 }
 
 const getPriority = (action) => {
     switch (action) {
+        case '^':
+            return 4;
         case '*':
         case '/':
             return 3;
@@ -199,6 +245,63 @@ const merge = (listToMerge) => {
 
 const validAction = (ch) => ACTIONS.indexOf(ch) !== -1;
 
+const getNextToken = (script) => {
+    if (!script.stillValid()) {
+        return EMPTY;
+    }
+
+    const end = script.data
+        .split('')
+        .slice(script.from + 1)
+        .findIndex((el) => TOKEN_SEPARATION.includes(el));
+
+    if (end === undefined) {
+        return EMPTY;
+    }
+    const variable = script.data.slice(script.from + 1, script.from + end + 1);
+    script.from += end;
+    return variable;
+};
+
+const skipBlock = (script) => {
+    let startCount = 0;
+    let endCount = 0;
+    while (startCount === 0 || startCount > endCount) {
+        if (!script.stillValid()) {
+            throw Error();
+        }
+        const currentChar = script.getCurrentChar();
+        script.forward();
+        switch (currentChar) {
+            case START_GROUP:
+                startCount += 1;
+                break;
+            case END_GROUP:
+                endCount += 1;
+                break;
+            default:
+                break;
+        }
+    }
+
+    if (startCount !== endCount) {
+        throw Error();
+    }
+};
+
+const skipRestBlocks = (script) => {
+    while (script.stillValid()) {
+        console.log(123, script)
+        const nextData = new ParsingScript(script.data, script.from);
+        const nextToken = getNextToken(nextData);
+        if (nextToken !== ELSE) {
+            return;
+        }
+        script.from = nextData.from;
+        skipBlock(script);
+    }
+};
+
 const goToNextStatement = (script) => {
     let endGroupRead = 0;
 
@@ -225,21 +328,21 @@ const goToNextStatement = (script) => {
 const main = async (filepath) => {
     const file = await fs.readFile(filepath, 'utf8')
     let answer;
-    const expressions = file.toString().split(END_LINE);
+    const script = new ParsingScript(file);
 
-    expressions.forEach((expression) => {
-        const script = new ParsingScript(expression);
+    while (script.stillValid()) {
+        const parser = new Parser();
+        answer = parser.loadAndCalculate(script, END_STATEMENT);
+        goToNextStatement(script);
+    }
 
-        if (expression !== EMPTY) {
-            while (script.stillValid()) {
-                const parser = new Parser();
-                answer = parser.loadAndCalculate(script, END_STATEMENT);
-                goToNextStatement(script);
-            }
-
-            console.log(`${expression} = ${answer}`);
-        }
-    })
+    console.log(`Code:
+${file}
+Answer: 
+${ answer }
+`);
 };
 
-await main('test.txt')
+await main('true-condition.txt')
+await main('true-condition2.txt')
+await main('false-condition.txt')
