@@ -1,5 +1,5 @@
 if(0) {
-   abs(-4)
+   abs(-4);
 } else {
-   sqrt(4)
+   sqrt(4);
 }

@@ -157,12 +157,12 @@ class Parser {
             }
 
             if (!script.stillValid()) {
-                throw new Error('Ошибка: неверное выражение');
+                throw new Error();
             }
             result = this.loadAndCalculate(script, END_PARSING_STR);
         }
         if (result === null) {
-            throw new Error('Ошибка: неверное выражение');
+            throw new Error();
         }
         return result;
     };
@@ -173,7 +173,6 @@ class Parser {
 
         if (isTrue) {
             const result = this.processBlock(script);
-            skipRestBlocks(script);
             return result;
         }
         skipBlock(script);
@@ -289,19 +288,6 @@ const skipBlock = (script) => {
     }
 };
 
-const skipRestBlocks = (script) => {
-    while (script.stillValid()) {
-        console.log(123, script)
-        const nextData = new ParsingScript(script.data, script.from);
-        const nextToken = getNextToken(nextData);
-        if (nextToken !== ELSE) {
-            return;
-        }
-        script.from = nextData.from;
-        skipBlock(script);
-    }
-};
-
 const goToNextStatement = (script) => {
     let endGroupRead = 0;
 
@@ -333,7 +319,6 @@ const main = async (filepath) => {
     while (script.stillValid()) {
         const parser = new Parser();
         answer = parser.loadAndCalculate(script, END_STATEMENT);
-        goToNextStatement(script);
     }
 
     console.log(`Code:
