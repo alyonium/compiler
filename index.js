@@ -169,6 +169,8 @@ const mergeCells = (leftCell, rightCell) => {
             break;
         case '-': leftCell.value -= rightCell.value;
             break;
+        case '^': leftCell.value **= rightCell.value;
+            break;
         default:
     }
     leftCell.action = rightCell.action;
