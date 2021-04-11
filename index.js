@@ -2,7 +2,11 @@ import fs from 'fs/promises';
 
 const START_ARG = '(';
 const END_ARG = ')';
+const SPACE = ' ';
+const EMPTY = '';
 const END_LINE = '\n';
+const END_STATEMENT = ';';
+const ACTIONS = ['*', '/', '+', '-', '^'];
 let INDEX = 1
 
 class Cell {
@@ -15,76 +19,128 @@ class Cell {
     }
 }
 
-class Parser {
-    convertStringToNumber(data, item) {
-        const num = parseFloat(item);
-        if (Number.isNaN(num)) {
-            throw new Error(`Couldn't parse number from string ${item}`);
-        }
-        return num;
-    };
+class ParsingScript {
+    data
+    from
+
+    constructor(data, from = 0) {
+        this.data = data;
+        this.from = from;
+    }
+
+    stillValid() {
+        return this.from < this.data.length;
+    }
+
+    getCurrentChar() {
+        return this.data[this.from];
+    }
+
+    forward() {
+        this.from += 1;
+    }
 }
 
-class Calculator {
-    from = 0
+class Parser {
+    parserFunctions = {
+        sin: (script) => {
+            const arg = this.loadAndCalculate(script, END_ARG);
+            return Math.sin(arg);
+        },
+        cos: (script) => {
+            const arg = this.loadAndCalculate(script, END_ARG);
+            return Math.cos(arg);
+        },
+        tan: (script) => {
+            const arg = this.loadAndCalculate(script, END_ARG);
+            return Math.tan(arg);
+        },
+        abs: (script) => {
+            const arg = this.loadAndCalculate(script, END_ARG);
+            return Math.abs(arg);
+        },
+        sqrt: (script) => {
+            const arg = this.loadAndCalculate(script, END_ARG);
+            return Math.sqrt(arg);
+        },
+        log: (script) => {
+            const arg = this.loadAndCalculate(script, END_ARG);
+            return Math.log(arg);
+        },
+    };
 
-    loadAndCalculate(data, to) {
-        if (this.from >= data.length || data[this.from] === to)  {
-            throw new Error(`Loaded invalid data ${data}`);
-        }
-
+    loadAndCalculate = (script, to) => {
         const listToMerge = [];
         let item = '';
 
         do {
-            const ch = data[this.from++];
+            const ch = script.data[script.from];
+            script.from += 1;
 
-            if (stillCollecting(item, ch, to)) {
+            if (this.stillCollecting(item, ch, to)) {
                 item += ch;
-                if (this.from < data.length && data[this.from] !== to) {
+                if (script.from < script.data.length && !to.includes(script.data[script.from])) {
                     continue;
                 }
             }
-            const func = this.parserFunction(data, item, ch);
+            const func = this.parserFunction(script, item, ch);
 
-            const value = func(data, item);
-
-            const action = validAction(ch) ? ch : this.updateAction(data, ch, to);
+            const value = func(script);
+            const action = validAction(ch) ? ch : this.updateAction(script, ch, to);
             listToMerge.push(new Cell(value, action));
             item = item.replace(`${item}`, '');
+        } while (script.from < script.data.length && !to.includes(script.data[script.from]));
 
-        } while (this.from < data.length && data[this.from] !== to);
-
-        if (this.from < data.length && (data[this.from] === END_ARG || data[this.from] === to)) {
-            this.from++;
+        if (script.from < script.data.length && (script.data[script.from] === END_ARG || to.includes(script.data[script.from]))) {
+            script.from++;
         }
 
         return merge(listToMerge)
     }
 
-    updateAction(item, ch, to) {
-        if (this.from >= item.length || item[this.from] === END_ARG || item[this.from] === to) {
+    updateAction = (script, ch, to) => {
+        if (script.from >= script.data.length || script.data[script.from] === END_ARG || script.data[script.from] === to) {
             return END_ARG;
         }
 
-        let index = this.from;
+        let index = script.from;
         let res = ch;
 
-        while (!validAction(res) && index < item.length) {
-            res = item[index++];
+        while (!validAction(res) && index < script.data.length) {
+            res = script.data[index];
+            index += 1;
         }
 
-        this.from = validAction(res) ? index : index > this.from ? index - 1 : this.from;
+        if (validAction(res)) {
+            script.from = index;
+        } else if (index > script.from) {
+            script.from = index - 1;
+        }
 
         return res;
     };
 
-    parserFunction(data, item, ch) {
-        if (item.length === 0 && ch === START_ARG) {
-            return () => this.loadAndCalculate(data, END_ARG);
+    stillCollecting = (item, ch, to) => {
+        const stopCollecting = to === END_ARG || to === EMPTY ? END_ARG : to;
+        return ((item.length === 0 && (ch === '-' || ch === END_ARG)) || !(validAction(ch) || ch === START_ARG || ch === stopCollecting));
+    };
+
+    convertStringToNumber = (item) => () => {
+        const num = +item;
+        if (Number.isNaN(num)) {
+            throw new Error(`Couldn't parse number from string ${item}`);
         }
-        const parser = new Parser();
-        return parser.convertStringToNumber;
+        return num;
+    };
+
+    parserFunction = (script, item, ch) => {
+        if (item.length === 0 && ch === START_ARG) {
+            return () => this.loadAndCalculate(script, END_ARG);
+        }
+        if (this.parserFunctions[item] !== undefined) {
+            return this.parserFunctions[item];
+        }
+        return this.convertStringToNumber(item);
     }
 }
 
@@ -139,22 +195,49 @@ const merge = (listToMerge) => {
     return mergeCycle(listToMerge[0], false);
 };
 
-const validAction = (ch) => ['*', '/', '+', '-'].indexOf(ch) !== -1;
+const validAction = (ch) => ACTIONS.indexOf(ch) !== -1;
 
-const stillCollecting = (item, ch, to) => {
-    const stopCollecting = to === END_ARG || to === END_LINE ? END_ARG : to;
-    return ((item.length === 0 && (ch === '-' || ch === END_ARG)) || !(validAction(ch) || ch === START_ARG || ch === stopCollecting));
+const goToNextStatement = (script) => {
+    let endGroupRead = 0;
+
+    while (script.stillValid()) {
+        const currentChar = script.getCurrentChar();
+        switch (currentChar) {
+            case END_GROUP:
+                endGroupRead += 1;
+                script.forward();
+                return endGroupRead;
+            case START_GROUP:
+            case END_ARG:
+            case END_LINE:
+            case SPACE:
+                script.forward();
+                break;
+            default:
+                return endGroupRead;
+        }
+    }
+    return endGroupRead;
 };
 
 const main = async (filepath) => {
     const file = await fs.readFile(filepath, 'utf8')
+    let answer;
     const expressions = file.toString().split(END_LINE);
 
     expressions.forEach((expression) => {
-        const calculator = new Calculator();
-        const answer = calculator.loadAndCalculate(expression);
-        console.log(`${ expression } = ${ answer }`);
+        const script = new ParsingScript(expression);
+
+        if (expression !== EMPTY) {
+            while (script.stillValid()) {
+                const parser = new Parser();
+                answer = parser.loadAndCalculate(script, END_STATEMENT);
+                goToNextStatement(script);
+            }
+
+            console.log(`${expression} = ${answer}`);
+        }
     })
 };
 
-await main('file.txt')
+await main('test.txt')
